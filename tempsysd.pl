@@ -3,7 +3,11 @@
 use strict;
 use warnings;
 use boolean ':all';
-use Proc::Daemon;
+use Popsoof;
+use Debugger;
+use Tempsysdctl;
+
+our @ISA = qw(Tempsysdctl);
 
 #
 # Entry point
@@ -17,15 +21,15 @@ use Proc::Daemon;
 #
 # Global var refs
 {
-	my $sversion = 'v0.1.0';
+	my $sversion = 'v0.0.0';
 	my $sauthor = 'Matt Rienzo';
 	use constant VERSION => $sversion;
 	use constant AUTHOR => $sauthor;
 
 	my $sddir = '/etc/tempsys/';
 	use constant rDROOT => \$sddir;
-	my $sctldir = '/ctl/tempsysd/';
-	use constat rCTLROOT => \$sctldir;
+	my $sctldir = '/ctl/tempsysdctl/';
+	use constant rCTLROOT => \$sctldir;
 
 	# Extry
 	use constant nl => "\n";
@@ -39,14 +43,16 @@ sub main {
 	my $iargc = shift;
 	my $rargv = shift;
 
+	InitSpool();
+	ProcessArguments($iargc, $rargv);
+
+
 	return $iargc;
 }
-#
-#
 
 # (string, string) ProcessArguments($,$) -- commandline argument processor
-#-- Arguments: $argc, the argument count
-#              $argv, a reference to the argument vector.
+#-- Arguments: $iargc, the argument count
+#              $rargv, a reference to the argument vector.
 #-- Returns: @returnList, { the input source parts directory
 #                           the output source path. }
 sub ProcessArguments {
@@ -54,7 +60,7 @@ sub ProcessArguments {
   my $rargv = shift;
 
   # Weirdly works online but not in CLI grep...?
-  my $xcmdSwitches = qr/-(license|help|version|stop|start|once|status|config|configure)/;
+  my $xcmdSwitches = qr/-(license|help|version|stop|start|once|status|config|interactive|temps)/;
 
   # Iterate through arguments
   my $bboolSkip = false;
@@ -67,6 +73,14 @@ sub ProcessArguments {
     PrintLicenseNotice() if $rargv->[$iargumentIndex] eq "license";
     UsageDie() if $rargv->[$iargumentIndex] eq "help";
     PrintVersion() if $rargv->[$iargumentIndex] eq "version";
+		StopService() if $rargv->[$iargumentIndex] eq "stop";
+		StartService() if $rargv->[$iargumentIndex] eq "start";
+		RunInternals('once') if $rargv->[$iargumentIndex] eq "once";
+		PrintServiceStatus() if $rargv->[$iargumentIndex] eq "status";
+		PrintConfiguration() if $rargv->[$iargumentIndex] eq "config";
+		InteractiveShell() if $rargv->[$iargumentIndex] eq "interactive";
+		RunInternals('print-temperatures') if $rargv->[$iargumentIndex] eq "temps";
+
 
     UsageDie() unless $rargv->[$iargumentIndex] =~ $xcmdSwitches;
   }
@@ -85,8 +99,10 @@ sub UsageDie {
 		"         start                    Start the daemon.\n".
 		"         once                     Run as script instead of daemon (not recommended).\n".
 		"         status                   Print service status.\n".
-		"         config                   Print the file path to the configuration directory.\n".
-		"         configure                Start a configuration shell (not working yet).\n".
+		"         config                   Print the file path to the configuration directory,\n".
+		"  																	 and then configuration information.\n".
+		"         interactive              Start a configuration shell (not working yet).\n".
+		"					temps 									 Print system temperatures.\n"
     "Created by Matt Rienzo, 2019.\n");
 }
 
@@ -126,5 +142,14 @@ sub Daemonize {
 	$SIG{TERM} = sub {
 		# exit sequence urgent
     exit(0);
-	}
+	};
+}
+
+# void InitSpool(void) -- Spools up the machctl hash.
+#-- Arguments: None.
+#-- Returns: None.
+sub InitSpool {
+	${ rMachCtl }->RunInternals('machctl/device/LoadMap()', {'root' => rDROOT, 'ctl' => rCTLROOT});
+	${ rMachCtl }->RunInternals('machctl/device/Poll()');
+	${ rMachCtl }->RunInternals('machctl/device/CheckSetup()');
 }
