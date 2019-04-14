@@ -93,8 +93,16 @@ sub Message {
 
     $Messenger{Levels}->[1](shift);
   }
-  
+
   if(ref $_[0] eq "HASH") $Messenger{Levels}->[$_[0]->{level}]($_[0]->{msg});
+}
+
+# hook Print(void) -- Prints the value of the attached Popsoof String.
+#-- Arguments: None.
+#-- Modifies: Nothing.
+sub Print {
+  my $this = shift;
+  $this->Message($this->Value);
 }
 
 # void Silence($) -- Turn on or off silent mode.

@@ -12,8 +12,8 @@ our @ISA = qw(Tempsysdctl);
 #
 # Entry point
 {
-	my $istat = main($#ARGV, \@ARGV);
-	exit($istat);
+	main($#ARGV, \@ARGV);
+	exit(${ rSTATUS });
 }
 #
 #
@@ -31,6 +31,9 @@ our @ISA = qw(Tempsysdctl);
 	my $sctldir = '/ctl/tempsysdctl/';
 	use constant rCTLROOT => \$sctldir;
 
+	my $istatus = 0;
+	use constant rSTATUS => \$istatus;
+
 	# Extry
 	use constant nl => "\n";
 }
@@ -45,7 +48,6 @@ sub main {
 
 	InitSpool();
 	ProcessArguments($iargc, $rargv);
-
 
 	return $iargc;
 }
@@ -75,11 +77,11 @@ sub ProcessArguments {
     PrintVersion() if $rargv->[$iargumentIndex] eq "version";
 		StopService() if $rargv->[$iargumentIndex] eq "stop";
 		StartService() if $rargv->[$iargumentIndex] eq "start";
-		RunInternals('once') if $rargv->[$iargumentIndex] eq "once";
+		${ rMachCtl }->RunInternals('once') if $rargv->[$iargumentIndex] eq "once";
 		PrintServiceStatus() if $rargv->[$iargumentIndex] eq "status";
 		PrintConfiguration() if $rargv->[$iargumentIndex] eq "config";
 		InteractiveShell() if $rargv->[$iargumentIndex] eq "interactive";
-		RunInternals('print-temperatures') if $rargv->[$iargumentIndex] eq "temps";
+		${ rMachCtl }->RunInternals('print-temperatures') if $rargv->[$iargumentIndex] eq "temps";
 
 
     UsageDie() unless $rargv->[$iargumentIndex] =~ $xcmdSwitches;
@@ -152,4 +154,49 @@ sub InitSpool {
 	${ rMachCtl }->RunInternals('machctl/device/LoadMap()', {'root' => rDROOT, 'ctl' => rCTLROOT});
 	${ rMachCtl }->RunInternals('machctl/device/Poll()');
 	${ rMachCtl }->RunInternals('machctl/device/CheckSetup()');
+}
+
+# hook StopService(void) -- Stops the running tempsysd service, if any.
+#-- Arguments: None.
+#-- Modifies: rSTATUS = PID_of_service, 0 for none, -(PID_of_service) for error stopping service,
+#								or -1 for general error.
+sub StopService {
+	${ rMachCtl }->RunInternals('machctl/service/Stop()');
+	${ rSTATUS } = ${ rMachCtl }->RunInternals('machctl/service/PID_of_service');
+}
+
+# hook StartService(void) -- Starts the tempsysd service.
+#-- Arguments: None.
+#-- Modifies: rSTATUS = PID_of_service, -1 for general error.
+sub StartService {
+	${ rMachCtl }->RunInternals('machctl/service/Start()');
+	${ rSTATUS } = ${ rMachCtl }->RunInternals('machctl/service/PID_of_service');
+}
+
+# void PrintServiceStatus(void) -- Prints the status of the tempsysd service.
+#-- Arguments: None.
+#-- Returns: None.
+sub PrintServiceStatus {
+	${ rMachCtl }->RunInternals('machctl/service/Status()')->Print();
+}
+
+# void PrintConfiguration(void) -- Prints a couple things...read the help menu.
+#-- Arguments: None.
+#-- Returns: Nothing.
+sub PrintConfiguration {
+	print "Information from configuration file: ";
+	print ${ rDROOT }."/service.conf\n";
+
+	foreach my $iconfig (0..${ rDROOT }->CountLines()) {
+		next if ${ (rDROOT, \$iconfig)->FirstChar() } eq '#';
+
+		(rDROOT, \$iconfig)->StringifyLine()->Print();
+	}
+}
+
+# hook InteractiveShell(void) -- Does nothing right now.
+#-- Arguments: None.
+#-- Modifies: rSTATUS = -1.
+sub InteractiveShell {
+	${ rSTATUS } = -1;
 }
