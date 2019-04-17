@@ -28,6 +28,39 @@ our @ISA = qw(Tempsysdctl::RunInternals);
     },
 
     descriptor => 'machctl/device',
+    Ctl => Tempsysdctl->new();
   );
   use constant rMachCtl => \%hmachctl;
 }
+#
+#
+
+#
+# Tempsysdctl accessors
+
+# Tempsysdctl constructor
+sub new {
+  my $class = shift;
+
+  my $self = {
+    'once' => sub {
+      # Do our thing, but only once as a script instead of daemon.
+    },
+    'print-temperatures' => sub {
+      # Print CPU temperature first
+
+      # Check arguments for all v. raid, default raid.
+
+      # If raid, check mdstat and try it.
+
+      # Else if all, loop through /dev/sd* with smartmonctl and ignore the ones
+      # that don't return a temperature (and so not SATA hard drives.).
+
+    },
+  };
+
+  return bless $self, $class;
+}
+
+#
+#

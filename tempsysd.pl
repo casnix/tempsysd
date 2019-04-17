@@ -3,6 +3,8 @@
 use strict;
 use warnings;
 use boolean ':all';
+use Term::ANSIColor;
+
 use Popsoof;
 use Debugger;
 use Tempsysdctl;
@@ -65,13 +67,7 @@ sub ProcessArguments {
   my $xcmdSwitches = qr/-(license|help|version|stop|start|once|status|config|interactive|temps)/;
 
   # Iterate through arguments
-  my $bboolSkip = false;
   foreach my $iargumentIndex (0..$iargc){
-    if($bboolSkip) {
-      $bboolSkip = false;
-      next;
-    }
-
     PrintLicenseNotice() if $rargv->[$iargumentIndex] eq "license";
     UsageDie() if $rargv->[$iargumentIndex] eq "help";
     PrintVersion() if $rargv->[$iargumentIndex] eq "version";
@@ -81,8 +77,9 @@ sub ProcessArguments {
 		PrintServiceStatus() if $rargv->[$iargumentIndex] eq "status";
 		PrintConfiguration() if $rargv->[$iargumentIndex] eq "config";
 		InteractiveShell() if $rargv->[$iargumentIndex] eq "interactive";
-		${ rMachCtl }->RunInternals('print-temperatures') if $rargv->[$iargumentIndex] eq "temps";
 
+		${ rMachCtl }->RunInternals('print-temperatures',
+		{'rargs' => $rargv->[$iargumentIndex + 1]}) if $rargv->[$iargumentIndex] eq "temps";
 
     UsageDie() unless $rargv->[$iargumentIndex] =~ $xcmdSwitches;
   }
@@ -104,7 +101,7 @@ sub UsageDie {
 		"         config                   Print the file path to the configuration directory,\n".
 		"  																	 and then configuration information.\n".
 		"         interactive              Start a configuration shell (not working yet).\n".
-		"					temps 									 Print system temperatures.\n"
+		"					temps [".colored('raid', 'bold underline')."|all]				 Print system temperatures.\n"
     "Created by Matt Rienzo, 2019.\n");
 }
 
@@ -169,6 +166,7 @@ sub StopService {
 #-- Arguments: None.
 #-- Modifies: rSTATUS = PID_of_service, -1 for general error.
 sub StartService {
+	Daemonize();
 	${ rMachCtl }->RunInternals('machctl/service/Start()');
 	${ rSTATUS } = ${ rMachCtl }->RunInternals('machctl/service/PID_of_service');
 }

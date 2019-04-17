@@ -1,0 +1,7 @@
+April 17th, 2019 @1521z:
+In `RunInternals.pm`, make device and service functions hashed maps to private
+methods.  %service and %device.
+
+The functions in Tempsysdctl that use disk (all|raid) temperatures should
+have a modular function call.  The web service and CLI service should use the same
+function to get temperatures.  I.e: (getAllDisks|getRaidDisks)paths->tempCall->format.
