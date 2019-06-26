@@ -116,8 +116,7 @@ sub ProcessArguments {
   my $iargc = shift;
   my $rargv = shift;
 
-  # Weirdly works online but not in CLI grep...?
-  my $xcmdSwitches = qr/-(license|help|version|stop|start|once|status|config|interactive|temps)/;
+  my $xcmdSwitches = qr/(license|help|version|stop|start|once|status|config|interactive|temps)/;
 
   # Iterate through arguments
   foreach my $iargumentIndex (0..$iargc){
@@ -243,6 +242,7 @@ sub StartService {
 #-- Returns: None.
 sub PrintServiceStatus {
 	${ rMachCtl }->RunInternals('machctl/service/Status')->Print();
+  print "Also try the command: ".colored('service tempsysd status', 'bold').nl;
 }
 
 # void PrintConfiguration(void) -- Prints a couple things...read the help menu.
