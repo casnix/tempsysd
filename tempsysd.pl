@@ -8,8 +8,19 @@ use Term::ANSIColor;
 use Popsoof;
 use Debugger;
 use Tempsysdctl;
+use Linux::Systemd::Daemon;
 
 our @ISA = qw(Tempsysdctl);
+
+###DOC (Process run map)
+## 1) Process boot
+## 2) InitSpool -- set up MachCTL data/SystemD.
+## 3) ProcessArguments -- Process cli args, if any
+## 4) Use SQL db to log temperatures for web server
+## 5) Refresh web portal values (if any).
+## 6) Print values to CLI if requested.
+## 7) Detach from TTY (if daemonizing). otherwise, exit. 
+
 
 #
 # Entry point
@@ -28,13 +39,55 @@ our @ISA = qw(Tempsysdctl);
 	use constant VERSION => $sversion;
 	use constant AUTHOR => $sauthor;
 
-	my $sddir = '/etc/tempsys/';
+	my $sddir = '/etc/tempsysd/'; # Configuration directory. 
 	use constant rDROOT => \$sddir;
-	my $sctldir = '/ctl/tempsysdctl/';
+	my $sctldir = '/ctl/tempsysdctl/'; # Sub-scripts directories and resources.
 	use constant rCTLROOT => \$sctldir;
 
 	my $istatus = 0;
 	use constant rSTATUS => \$istatus;
+  
+  # Uses rDSTAT to store status information for later recall.  Do not set by user.
+  my $isysdstat = 0;
+  use constant rDSTAT => \$isysdstat;
+  
+  use constant READY => 0;
+  use constant WATCHDOG => 1;
+  use constant STOPPING => 2;
+  use constant RELOADING => 3;
+  
+  my @asysdstat = (
+    ## 0: ready
+    sub {
+      sd_notify(ready => 1, status => shift);
+      ${ rDSTAT } = 0;
+    },
+    
+    ## 1: watchdog 
+    sub {
+      sd_notify(watchdog => 1, status => shift);
+      ${ rDSTAT } = 1;
+    },
+    
+    ## 2: stopping 
+    sub {
+      sd_notify(stopping => 1, status => shift);
+      ${ rDSTAT } = 2;
+    },
+    
+    ## 3: reloading 
+    sub {
+      sd_notify(reloading => 1, status => shift);
+      ${ rDSTAT } = 3;
+    }
+    
+    ## 4: status
+    sub {
+      sd_status(shift);
+    },
+  );
+  
+  use constant SYSDSTAT => \@asysdstat;
 
 	# Extry
 	use constant nl => "\n";
@@ -68,18 +121,25 @@ sub ProcessArguments {
 
   # Iterate through arguments
   foreach my $iargumentIndex (0..$iargc){
+  #PROCESS/INFORMATION{
     PrintLicenseNotice() if $rargv->[$iargumentIndex] eq "license";
     UsageDie() if $rargv->[$iargumentIndex] eq "help";
     PrintVersion() if $rargv->[$iargumentIndex] eq "version";
-		StopService() if $rargv->[$iargumentIndex] eq "stop";
-		StartService() if $rargv->[$iargumentIndex] eq "start";
-		${ rMachCtl }->RunInternals('once') if $rargv->[$iargumentIndex] eq "once";
-		PrintServiceStatus() if $rargv->[$iargumentIndex] eq "status";
+    PrintServiceStatus() if $rargv->[$iargumentIndex] eq "status";
 		PrintConfiguration() if $rargv->[$iargumentIndex] eq "config";
+  #}
+    
+  #SYSTEMD/SD_*() {
+		StopService() if $rargv->[$iargumentIndex] eq "stop";
+		StartService() if $rargv->[$iargumentIndex] eq "start"; # Requires start of shelling daemon too.  So there are two daemons.
+  #}
+  
+  #PROCESS/NON_DAEMONIZING{
+		${ rMachCtl }->RunInternals('once') if $rargv->[$iargumentIndex] eq "once";\
 		InteractiveShell() if $rargv->[$iargumentIndex] eq "interactive";
-
 		${ rMachCtl }->RunInternals('print-temperatures',
 		{'rargs' => $rargv->[$iargumentIndex + 1]}) if $rargv->[$iargumentIndex] eq "temps";
+  #}
 
     UsageDie() unless $rargv->[$iargumentIndex] =~ $xcmdSwitches;
   }
@@ -100,7 +160,7 @@ sub UsageDie {
 		"         status                   Print service status.\n".
 		"         config                   Print the file path to the configuration directory,\n".
 		"  																	 and then configuration information.\n".
-		"         interactive              Start a configuration shell (not working yet).\n".
+		"[TODO]   interactive              Start a configuration shell.\n".
 		"					temps [".colored('raid', 'bold underline')."|all]				 Print system temperatures.\n"
     "Created by Matt Rienzo, 2019.\n");
 }
@@ -125,12 +185,15 @@ sub PrintVersion {
 #-- Arguments: Rebellion in heaven.
 #-- Returns: Idk.  Suffering probably.
 sub Daemonize {
+  ${ SYSTEMD }->RELOADING->("Spawning new child daemon.");
   use POSIX;
   POSIX::setsid or die "setsid: $!";
-  my $pid = fork() // die $!; #//
+  my $pid = fork() // SpawnError($!); #//
   exit(0) if $pid;
-
-  chdir "/";
+  ${ SYSTEMD }->STATUS->("New PID is ".$pid.".  Updating MachCtl database with PID.");
+  ${ rMachCtl }->RunInternals('machctl/service/PID_of_service_Update()')->($pid);
+  
+  chdir ${ rMachCtl }->RunInternals('machctl/device/Map/root');
   umask 0;
   for (0 .. (POSIX::sysconf (&POSIX::_SC_OPEN_MAX) || 1024))
     { POSIX::close $_ }
@@ -140,6 +203,7 @@ sub Daemonize {
 
 	$SIG{TERM} = sub {
 		# exit sequence urgent
+    StopService();
     exit(0);
 	};
 }
@@ -151,6 +215,7 @@ sub InitSpool {
 	${ rMachCtl }->RunInternals('machctl/device/LoadMap()', {'root' => rDROOT, 'ctl' => rCTLROOT});
 	${ rMachCtl }->RunInternals('machctl/device/Poll()');
 	${ rMachCtl }->RunInternals('machctl/device/CheckSetup()');
+  ${ rMachCtl }->RunInternals('machctl/database/CheckDBServ()');
 }
 
 # hook StopService(void) -- Stops the running tempsysd service, if any.
@@ -158,8 +223,10 @@ sub InitSpool {
 #-- Modifies: rSTATUS = PID_of_service, 0 for none, -(PID_of_service) for error stopping service,
 #								or -1 for general error.
 sub StopService {
-	${ rMachCtl }->RunInternals('machctl/service/Stop()');
+	${ SYSDSTAT }->STOPPING->("Stopping service....");
+  ${ rMachCtl }->RunInternals('machctl/service/Stop()');
 	${ rSTATUS } = ${ rMachCtl }->RunInternals('machctl/service/PID_of_service');
+  ${ SYSDSTAT }->STATUS->("Stopped service at PID ".${ rSTATUS });
 }
 
 # hook StartService(void) -- Starts the tempsysd service.
@@ -175,7 +242,7 @@ sub StartService {
 #-- Arguments: None.
 #-- Returns: None.
 sub PrintServiceStatus {
-	${ rMachCtl }->RunInternals('machctl/service/Status()')->Print();
+	${ rMachCtl }->RunInternals('machctl/service/Status')->Print();
 }
 
 # void PrintConfiguration(void) -- Prints a couple things...read the help menu.
